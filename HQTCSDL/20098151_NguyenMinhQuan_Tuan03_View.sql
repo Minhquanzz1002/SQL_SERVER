@@ -47,6 +47,7 @@ GROUP BY SOH.SalesPersonID, YEAR(SOH.OrderDate)
 
 SELECT * FROM totalQuantity
 
+SP_HELPTEXT totalQuantity
 --5) Tạo view ListCustomer_view chứa danh sách các khách hàng có trên 25 hóa đơn
 --đặt hàng từ năm 2007 đến 2008, thông tin gồm mã khách (PersonID) , họ tên
 --(FirstName +' '+ LastName as FullName), Số hóa đơn (CountOfOrders).
@@ -75,6 +76,8 @@ FROM Production.Product AS P
 WHERE P.Name LIKE 'Bike%' OR P.Name LIKE 'Sport%'
 GROUP BY P.ProductID, P.Name, YEAR(SOH.OrderDate)
 HAVING SUM(SOD.OrderQty)>50
+
+SP_HELPTEXT ListProduct_view
 
 SELECT * FROM ListProduct_view
 --7) Tạo view List_department_View chứa danh sách các phòng ban có lương (Rate:
@@ -147,3 +150,5 @@ INSERT INTO view_Department (DepartmentID, Name, GroupName) VALUES (20, 'ABC2', 
 
 --c. Dùng câu lệnh Select xem kết quả trong bảng Department.
 SELECT * FROM HumanResources.Department
+
+SELECT DATEPART(Q, '2002/10/10')

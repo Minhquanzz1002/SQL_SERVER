@@ -23,6 +23,17 @@ SELECT dbo.countofEmplyees(1) AS N'SỐ NHÂN VIÊN'
 DECLARE @mapb INT
 SET @mapb = 1
 PRINT N'SỐ NHÂN VIÊN TRONG PHÒNG ' + CONVERT(CHAR(5), @mapb) + N' LÀ ' + CONVERT(CHAR(5), DBO.countofEmplyees(@mapb)) 
+GO
+	--Áp dụng hàm đã viết vào câu truy vấn liệt kê danh sách các phòng ban với số nhân viên của mỗi phòng ban, thông tin gồm: [DepartmentID], Name, 
+	--countOfEmp với countOfEmp= countofEmplyees([DepartmentID])
+	DECLARE @mapb INT
+	SET @mapb = 1
+	SELECT D.DepartmentID, D.Name, DBO.countofEmplyees(@mapb) AS N'Số lượng nhân viên'
+	FROM HumanResources.EmployeeDepartmentHistory AS EDH
+		 INNER JOIN HumanResources.Department AS D ON EDH.DepartmentID=D.DepartmentID
+	WHERE D.DepartmentID=@mapb
+	GROUP BY D.DepartmentID, D.Name
+	GO
 
 --DỮ LIỆU TEST
 SELECT D.DepartmentID, D.Name, COUNT(EDH.DepartmentID) AS countOfEmp
@@ -30,6 +41,26 @@ FROM HumanResources.EmployeeDepartmentHistory AS EDH
      INNER JOIN HumanResources.Department AS D ON EDH.DepartmentID=D.DepartmentID
 GROUP BY D.DepartmentID, D.Name
 GO
+
+-- Multi statement Table Valued Functions
+--1) Viết hàm tên countofEmplyees (dạng scalar function) với tham số @mapb, giá trị truyền vào lấy từ field [DepartmentID], hàm trả về số nhân viên trong phòng 
+--ban tương ứng. Áp dụng hàm đã viết vào câu truy vấn liệt kê danh sách các phòng ban với số nhân viên của mỗi phòng ban, thông tin gồm: [DepartmentID], Name, 
+--countOfEmp với countOfEmp= countofEmplyees([DepartmentID]).
+--(Dữ liệu lấy từ bảng [HumanResources].[EmployeeDepartmentHistory] và [HumanResources].[Department])
+CREATE FUNCTION fn_multi_countofEmplyees(@mapb INT)
+RETURNS @table_multi_countofEmplyees TABLE(mapb INT, tenpb NVARCHAR(20), sonv INT)
+AS BEGIN
+    INSERT INTO @table_multi_countofEmplyees
+    SELECT D.DepartmentID, D.Name, COUNT(EDH.DepartmentID)
+    FROM HumanResources.EmployeeDepartmentHistory AS EDH INNER JOIN HumanResources.Department AS D ON EDH.DepartmentID=D.DepartmentID
+    WHERE D.DepartmentID=@mapb
+    GROUP BY D.DepartmentID, D.Name
+    RETURN
+END
+GO
+
+SELECT * FROM DBO.fn_multi_countofEmplyees(1)
+
 --2) Viết hàm tên là InventoryProd (dạng scalar function) với tham số vào là
 --@ProductID và @locationID trả về số lượng tồn kho của sản phẩm trong khu 
 --vực tương ứng với giá trị của tham số
@@ -187,22 +218,102 @@ RETURN(
       FROM Sales.SalesOrderHeader
       WHERE DATEPART(MM, OrderDate)=@MonthOrder AND DATEPART(YY, OrderDate)=@YearOrder
       GROUP BY SalesPersonID, OrderDate)
+GO
 
 DECLARE @MonthOrder INT, @YearOrder INT
 SET @MonthOrder = 1
 SET @YearOrder = 2007
 SELECT * FROM TotalOfEmp_tblfunc(@MonthOrder, @YearOrder)
-
+GO
 -- Multi statement Table Valued Functions
 --9) Viết lại các câu 5,6,7,8 bằng multi-statement table valued function
---CÂU 5
---5) Viết hàm tên NewBonus tính lại tiền thưởng (Bonus) cho nhân viên bán hàng 
---(SalesPerson), dựa trên tổng doanh thu của mỗi nhân viên, mức thưởng mới bằng 
---mức thưởng hiện tại tăng thêm 1% tổng doanh thu, thông tin bao gồm 
---[SalesPersonID], NewBonus (thưởng mới), sumofSubTotal. Trong đó:
--- SumofSubTotal =sum(SubTotal),
--- NewBonus = Bonus+ sum(SubTotal)*0.01
-CREATE FUNCTION 
+	--5) Viết hàm tên NewBonus tính lại tiền thưởng (Bonus) cho nhân viên bán hàng 
+	--(SalesPerson), dựa trên tổng doanh thu của mỗi nhân viên, mức thưởng mới bằng 
+	--mức thưởng hiện tại tăng thêm 1% tổng doanh thu, thông tin bao gồm 
+	--[SalesPersonID], NewBonus (thưởng mới), sumofSubTotal. Trong đó:
+	-- SumofSubTotal =sum(SubTotal),
+	-- NewBonus = Bonus+ sum(SubTotal)*0.01
+	CREATE FUNCTION fn_multi_NewBonus()
+	RETURNS @table_NewBonus TABLE(MANV INT, BONUS MONEY, TONGTIEN MONEY, NEWBONUS MONEY)
+	AS BEGIN
+		INSERT INTO @table_NewBonus
+		SELECT SP.BusinessEntityID, SP.Bonus, SUM(SOH.SubTotal) AS sumofSubTotal, NewBonus=SP.Bonus+SUM(SOH.SubTotal)* 0.01
+		FROM Sales.SalesPerson AS SP
+			 INNER JOIN Sales.SalesOrderHeader AS SOH ON SP.BusinessEntityID=SOH.SalesPersonID
+		GROUP BY SP.BusinessEntityID, SP.Bonus
+		RETURN
+	END
+	GO
+
+	SELECT * FROM dbo.fn_multi_NewBonus()
+	GO
+
+	--6) Viết hàm tên SumofProduct với tham số đầu vào là @MaNCC (VendorID), 
+	--hàm dùng để tính tổng số lượng (sumOfQty) và tổng trị giá (SumofSubtotal) 
+	--của các sản phẩm do nhà cung cấp @MaNCC cung cấp, thông tin gồm 
+	--ProductID, SumofProduct, SumofSubtotal
+	--(sử dụng các bảng [Purchasing].[Vendor] [Purchasing].[PurchaseOrderHeader] 
+	--và [Purchasing].[PurchaseOrderDetail])
+	CREATE FUNCTION fn_multi_SumofProduct(@MaNCC INT)
+	RETURNS @table_SumofProduct TABLE(ProductID INT,
+	SumofProduct INT,
+	sumOfQty INT)
+	AS BEGIN
+		INSERT INTO @table_SumofProduct
+		SELECT POD.ProductID, SUM(POH.SubTotal) AS SumofSubtotal, SUM(POD.OrderQty) sumOfQty
+		FROM Purchasing.Vendor AS V
+			 INNER JOIN Purchasing.PurchaseOrderHeader AS POH ON V.BusinessEntityID=POH.VendorID
+			 INNER JOIN Purchasing.PurchaseOrderDetail AS POD ON POH.PurchaseOrderID=POD.PurchaseOrderID
+		WHERE POH.VendorID=@MaNCC
+		GROUP BY POD.ProductID
+		RETURN
+	END
+	GO
+
+	SELECT * FROM dbo.fn_multi_SumofProduct(1514)
+	GO
+	--7) Viết hàm tên Discount_func tính số tiền giảm trên các hóa đơn(SalesOrderID), 
+	--thông tin gồm SalesOrderID, [SubTotal], Discount, trong đó, Discount được tính như sau:
+	--Nếu [SubTotal]<1000 thì Discount=0 
+	--Nếu 1000<=[SubTotal]<5000 thì Discount = 5%[SubTotal]
+	--Nếu 5000<=[SubTotal]<10000 thì Discount = 10%[SubTotal] 
+	--Nếu [SubTotal>=10000 thì Discount = 15%[SubTotal]
+	--Gợi ý: Sử dụng Case when …then …
+	--(Sử dụng dữ liệu từ bảng [Sales].[SalesOrderHeader])
+	CREATE FUNCTION fn_multi_Discount()
+	RETURNS @table_Discount TABLE(SalesOrderID INT, SubTotal MONEY, Discount MONEY)
+	AS BEGIN
+		INSERT INTO @table_Discount
+		SELECT SalesOrderID, SubTotal, CASE WHEN SubTotal<1000 THEN 0
+									   WHEN SubTotal<5000 THEN SubTotal * 0.05
+									   WHEN SubTotal<10000 THEN SubTotal * 0.1 ELSE SubTotal * 0.15 END AS Discount
+		FROM Sales.SalesOrderHeader
+		RETURN
+	END
+	GO
+
+	SELECT * FROM fn_multi_Discount()
+	GO
+
+	--8) Viết hàm TotalOfEmp với tham số @MonthOrder, @YearOrder để tính tổng 
+	--doanh thu của các nhân viên bán hàng (SalePerson) trong tháng và năm được 
+	--truyền và 2 tham số, thông tin gồm [SalesPersonID], Total, với 
+	--Total=Sum([SubTotal])
+	CREATE FUNCTION fn_multi_TotalOfEmp(@MonthOrder INT, @YearOrder INT)
+	RETURNS @table_TotalOfEmp TABLE(SalesPersonID INT, Total MONEY)
+	AS BEGIN
+		INSERT INTO @table_TotalOfEmp
+		SELECT SalesPersonID, SUM(SubTotal)
+		FROM Sales.SalesOrderHeader
+		WHERE DATEPART(MM, OrderDate)=@MonthOrder AND DATEPART(YY, OrderDate)=@YearOrder
+		GROUP BY SalesPersonID, OrderDate
+		RETURN
+	END
+	GO
+
+	SELECT * FROM fn_multi_TotalOfEmp(1, 2007)
+	GO
+
 --10)Viết hàm tên SalaryOfEmp trả về kết quả là bảng lương của nhân viên, với tham 
 --số vào là @MaNV (giá trị của [BusinessEntityID]), thông tin gồm 
 --BusinessEntityID, FName, LName, Salary (giá trị của cột Rate).
@@ -216,7 +327,33 @@ CREATE FUNCTION
 --Kết quả là 316 record
 --(Dữ liệu lấy từ 2 bảng [HumanResources].[EmployeePayHistory] và 
 --[Person].[Person] )
+CREATE FUNCTION fn_multi_SalaryOfEmp(@MaNV INT)
+RETURNS @table_SalaryOfEmp TABLE(BusinessEntityID INT, FName NVARCHAR(20), LName NVARCHAR(20), Salary MONEY)
+AS BEGIN
+    IF @MaNV IS NULL BEGIN
+        INSERT INTO @table_SalaryOfEmp
+        SELECT BE.BusinessEntityID, P.FirstName, P.LastName, EPH.Rate
+        FROM Person.BusinessEntity AS BE
+             INNER JOIN Person.Person AS P ON BE.BusinessEntityID=P.BusinessEntityID AND BE.BusinessEntityID=P.BusinessEntityID AND BE.BusinessEntityID=P.BusinessEntityID
+             INNER JOIN HumanResources.EmployeePayHistory AS EPH ON BE.BusinessEntityID=EPH.BusinessEntityID
+    END
+    ELSE BEGIN
+        INSERT INTO @table_SalaryOfEmp
+        SELECT BE.BusinessEntityID, P.FirstName, P.LastName, EPH.Rate
+        FROM Person.BusinessEntity AS BE
+             INNER JOIN Person.Person AS P ON BE.BusinessEntityID=P.BusinessEntityID AND BE.BusinessEntityID=P.BusinessEntityID AND BE.BusinessEntityID=P.BusinessEntityID
+             INNER JOIN HumanResources.EmployeePayHistory AS EPH ON BE.BusinessEntityID=EPH.BusinessEntityID
+        WHERE BE.BusinessEntityID=@MaNV
+    END
+    RETURN
+END
+GO
 
+SELECT * FROM fn_multi_SalaryOfEmp(288)
+GO
+
+SELECT * FROM fn_multi_SalaryOfEmp(NULL)
+GO
 
 --III) Stored Procedure
 --1) Viết một thủ tục tính tổng tiền thu (TotalDue) của mỗi khách hàng trong một 
@@ -269,9 +406,8 @@ ELSE PRINT 'Nhan vien khong ton tai'
 --giá trị được chỉ định, với tham số input @Product và @MaxPrice, tham số 
 --output @ComparePrice và ListPrice 
 
---CREATE PROC dsSanPham_Cau3 @Product INT,@MaxPrice INT
+--CREATE PROC dsSanPham_Cau3 @MaxPrice INT, @ComparePrice MONEY OUTPUT, @ListPrice MONEY OUPUT
 --AS BEGIN
---	DECLARE @ComparePrice INT,@ListPrice MONEY
 --	SELECT @ComparePrice = 
 --SELECT        ProductID, ListPrice
 --FROM            Production.Product
@@ -328,19 +464,32 @@ IF EXISTS (SELECT OrderDate
            WHERE DATEPART(YY, OrderDate)=@nam)
     EXEC sp_xemNhomSP_Cau5 @nam
 ELSE PRINT N'NĂM '+CONVERT(CHAR(4), @nam)+N' KHÔNG TỒN TẠI'
-
+GO
 --6) Tạo thủ tục đặt tên là TongThu có tham số vào là mã nhân viên, tham số đầu ra 
 --là tổng trị giá các hóa đơn nhân viên đó bán được. Sử dụng lệnh RETURN để trả 
 --về trạng thái thành công hay thất bại của thủ tục.
-CREATE PROC sp_TongThu @manv INT
+CREATE PROC sp_TongThu @manv INT, @tonghd MONEY OUTPUT
 AS BEGIN
-	
-
-
+    SELECT @tonghd=SUM(SubTotal)
+    FROM Sales.SalesOrderHeader
+    WHERE SalesPersonID=@manv
+    IF @tonghd>0 RETURN 1 ELSE RETURN 0
 END
+GO
 
---7) Tạo thủ tục hiển thị tên và số tiền mua của cửa hàng mua nhiều hàng nhất theo 
---năm đã cho.
+DECLARE @manv INT, @tonghd MONEY, @tong INT
+SET @manv=282
+EXEC @tong=sp_TongThu @manv, @tonghd OUTPUT
+IF @tong=1 BEGIN
+    PRINT N'THÀNH CÔNG'
+    PRINT N'TỔNG TRỊ GIÁ CÁC HÓA ĐƠN '+CONVERT(CHAR(10), @tonghd)
+END
+ELSE PRINT N'THẤT BẠI'
+GO
+
+SELECT * FROM Sales.SalesOrderHeader
+GO
+--7) Tạo thủ tục hiển thị tên và số tiền mua của cửa hàng mua nhiều hàng nhất theo năm đã cho.
 CREATE PROC sp_CuaHangMuaNhieuNhat @nam INT
 AS BEGIN
     SELECT S.Name, SUM(SOH.SubTotal) AS tongTien
@@ -358,6 +507,17 @@ AS BEGIN
 END
 
 EXEC sp_CuaHangMuaNhieuNhat 2007
+
+
+SELECT        Purchasing.PurchaseOrderHeader.*
+FROM            Purchasing.PurchaseOrderHeader
+
+select top 1 name,SubTotal from Purchasing.PurchaseOrderHeader as poh join Purchasing.Vendor as v on poh.VendorID=v.BusinessEntityID
+
+SELECT * FROM Sales.Store
+
+
+
 --8) Viết thủ tục Sp_InsertProduct có tham số dạng input dùng để chèn một mẫu tin 
 --vào bảng Production.Product. Yêu cầu: chỉ thêm vào các trường có giá trị not 
 --null và các field là khóa ngoại.
@@ -480,16 +640,42 @@ ELSE
         @ModifiedDate
 
 SET IDENTITY_INSERT [Production].[Product] ON
-
+GO
 --9) Viết thủ tục XoaHD, dùng để xóa 1 hóa đơn trong bảng Sales.SalesOrderHeader 
 --khi biết SalesOrderID. Lưu ý trước khi xóa mẫu tin trong 
 --Sales.SalesOrderHeader thì phải xóa các mẫu tin của hoá đơn đó trong 
 --Sales.SalesOrderDetail. Nếu không xoá được hoá đơn thì cũng không được phép 
 --xóa Sales.SalesOrderDetail của hóa đơn đó.
+CREATE PROC XoaHD @SalesOrderID INT
+AS BEGIN
+    IF EXISTS (SELECT * FROM Sales.SalesOrderDetail WHERE SalesOrderID=@SalesOrderID)BEGIN
+        DELETE FROM Sales.SalesOrderDetail WHERE SalesOrderID=@SalesOrderID
+        DELETE FROM Sales.SalesOrderHeader WHERE SalesOrderID=@SalesOrderID
+    END
+    ELSE
+        PRINT N'KHÔNG TỒN TẠI MÃ HÓA ĐƠN '+CONVERT(CHAR(5), @SalesOrderID)+N' KHÔNG THỂ XÓA'
+END
+GO
 
+EXEC XoaHD 75120
+GO
 
-
-
+SELECT * FROM Sales.SalesOrderDetail
+GO
 --10)Viết thủ tục Sp_Update_Product có tham số ProductId dùng để tăng listprice lên 
 --10% nếu sản phẩm này tồn tại, ngược lại hiện thông báo không có sản phẩm này.
+CREATE PROC Sp_Update_Product @ProductID INT
+AS BEGIN
+    IF EXISTS (SELECT * FROM Production.Product WHERE ProductID=@ProductID)
+        UPDATE Production.Product
+        SET ListPrice=ListPrice+ListPrice * 0.1
+        WHERE ProductID=@ProductID
+    ELSE
+        PRINT N'SẢN PHẨM CÓ MÃ '+CONVERT(CHAR(5), @ProductID)+N' KHÔNG TỒN TẠI!!!'
+END
+GO
 
+EXEC Sp_Update_Product 5
+GO
+
+SELECT ProductID, ListPrice FROM Production.Product
